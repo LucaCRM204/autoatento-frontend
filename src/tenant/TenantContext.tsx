@@ -1,9 +1,11 @@
 /**
  * TenantProvider: resuelve el tenant al cargar la app.
  *
- *   - Dominio de un cliente (crm.cliente.com.ar)  -> GET /api/public/tenant?host=<hostname>
+ *   - Subdominio (demo-norte.autoatento.com.ar) o
+ *     dominio propio del cliente (crm.cliente.com.ar) -> GET /api/public/tenant?host=<hostname>
+ *     (el backend resuelve <slug>.<BASE_DOMAIN> solo, sin cargarlo en "dominios")
  *   - localhost / 127.0.0.1 (desarrollo)          -> ?tenant=<slug> en la URL o VITE_DEV_TENANT
- *     (tenant-a.localhost también funciona: se resuelve por host)
+ *     (<slug>.localhost también funciona: se resuelve por host)
  *
  * Aplica el branding (título, favicon, color primario como variable CSS),
  * expone los módulos y muestra pantallas propias si el dominio no está

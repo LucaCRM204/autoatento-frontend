@@ -1,4 +1,5 @@
 /** Cliente del panel superadmin: /api/superadmin/*, con su propio token (no el de un CRM). */
+import { useEffect, useState } from 'react';
 import axios, { AxiosError } from 'axios';
 import { API_BASE } from '../tenant/store';
 
@@ -36,6 +37,35 @@ export function errorDe(e: unknown): string {
   return ax?.response?.data?.error || ax?.message || 'Error inesperado';
 }
 
+// ---------- config del panel (subdominios) ----------
+export interface ConfigPanel {
+  /** BASE_DOMAIN del backend (ej. autoatento.com.ar), o null si no está configurado. */
+  base_domain: string | null;
+  slugs_reservados: string[];
+}
+
+let configCache: Promise<ConfigPanel> | null = null;
+
+export function useConfigPanel(): ConfigPanel | null {
+  const [cfg, setCfg] = useState<ConfigPanel | null>(null);
+  useEffect(() => {
+    configCache ??= sa.get('/config').then((r) => r.data as ConfigPanel);
+    configCache.then(setCfg).catch(() => { configCache = null; });
+  }, []);
+  return cfg;
+}
+
+/** Mismas reglas que el backend (tenancy/subdominios.js): el slug va como subdominio. */
+export function problemaSlug(slug: string, reservados: string[] = []): string | null {
+  if (!slug) return null;
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$/.test(slug)) {
+    return 'Solo minúsculas, números y guiones (máx. 60), sin guion al principio ni al final';
+  }
+  if (slug.includes('--')) return 'No puede tener dos guiones seguidos';
+  if (reservados.includes(slug)) return `"${slug}" está reservado para AutoAtento`;
+  return null;
+}
+
 // ---------- tipos ----------
 export const MODULOS: { key: string; nombre: string; ayuda: string }[] = [
   { key: 'agente_ia', nombre: 'Agente IA', ayuda: 'Bandeja del agente y seguimiento automático' },
@@ -65,6 +95,8 @@ export interface Tenant {
   estado: 'activo' | 'suspendido' | 'baja';
   plan: 'esencial' | 'pro' | 'arm';
   dominios: string[];
+  /** https://<slug>.<BASE_DOMAIN>, o null si el backend no tiene BASE_DOMAIN. */
+  url: string | null;
   modulos: Record<string, boolean>;
   branding: { nombre?: string; logo_url?: string; favicon_url?: string; color_primario?: string };
   config: Record<string, any>;

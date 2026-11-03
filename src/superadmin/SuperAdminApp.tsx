@@ -208,7 +208,7 @@ function ListaTenants() {
               </div>
               <EstadoBadge estado={t.estado} />
             </div>
-            <div className="mt-3 text-xs text-slate-500 truncate">{t.dominios.join(' · ') || 'sin dominios'}</div>
+            <div className="mt-3 text-xs text-slate-500 truncate">{[t.url?.replace('https://', ''), ...t.dominios].filter(Boolean).join(' · ') || 'sin dominios'}</div>
             <div className="mt-3 flex gap-4 text-sm">
               <span><b className="text-slate-900">{t.uso_mes?.usuarios_activos ?? '—'}</b> <span className="text-slate-500">{t.uso_mes?.usuarios_activos === 1 ? 'usuario' : 'usuarios'}</span></span>
               <span><b className="text-slate-900">{t.uso_mes?.leads_ingresados ?? '—'}</b> <span className="text-slate-500">{t.uso_mes?.leads_ingresados === 1 ? 'lead' : 'leads'}</span></span>

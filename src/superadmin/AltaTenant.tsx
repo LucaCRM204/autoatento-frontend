@@ -1,11 +1,11 @@
 /** Alta de tenant: schema nuevo (con owner) o base existente (con o sin migrar). */
 import { useState, type FormEvent } from 'react';
-import { sa, errorDe, MODULOS } from './api';
+import { sa, errorDe, MODULOS, problemaSlug, useConfigPanel } from './api';
 import { Button, Card, Field, Input, Select, Aviso, lista, toast } from './ui';
 import { ir } from './nav';
 
 const aSlug = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-  .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+  .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/, '');
 
 const ZONAS = [
   'America/Argentina/Buenos_Aires', 'America/Argentina/Cordoba', 'America/Argentina/Mendoza',
@@ -33,10 +33,13 @@ export default function AltaTenant({ onCreado }: { onCreado: (id: number) => voi
   const [migrar, setMigrar] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState('');
+  const cfg = useConfigPanel();
+  const errorSlug = problemaSlug(slug, cfg?.slugs_reservados);
 
   const enviar = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
+    if (errorSlug) return setError(`Slug: ${errorSlug}`);
     const listaMarcas = lista(marcas).map((m) => m.toLowerCase());
     const body: any = {
       slug, nombre, plan,
@@ -91,9 +94,16 @@ export default function AltaTenant({ onCreado }: { onCreado: (id: number) => voi
           <Field label="Nombre visible">
             <Input value={nombre} required onChange={(e) => { setNombre(e.target.value); if (!slugTocado) setSlug(aSlug(e.target.value)); }} placeholder="Auto del Sol Fiat" />
           </Field>
-          <Field label="Slug" ayuda="Va en la URL de webhooks: /api/t/<slug>/...">
-            <Input value={slug} required pattern="[a-z0-9][a-z0-9-]{0,59}" onChange={(e) => { setSlug(e.target.value); setSlugTocado(true); }} placeholder="fiat-autodelsol" />
+          <Field label="Slug" ayuda="Minúsculas, números y guiones. Es el subdominio del CRM y va en los webhooks: /api/t/<slug>/...">
+            <Input value={slug} required aria-invalid={!!errorSlug} onChange={(e) => { setSlug(e.target.value.toLowerCase()); setSlugTocado(true); }} placeholder="fiat-autodelsol" />
+            {errorSlug && <span className="block text-xs text-red-600 mt-1">{errorSlug}</span>}
           </Field>
+          <div className="sm:col-span-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm">
+            <span className="text-slate-500">URL del CRM: </span>
+            {cfg?.base_domain
+              ? <span className="font-mono break-all">https://{slug && !errorSlug ? slug : '<slug>'}.{cfg.base_domain}</span>
+              : <span className="text-amber-700">{cfg ? 'el backend no tiene BASE_DOMAIN: el CRM se abre solo por los dominios propios' : '…'}</span>}
+          </div>
           <Field label="Plan">
             <Select value={plan} onChange={(e) => setPlan(e.target.value)}>
               <option value="esencial">Esencial</option><option value="pro">Pro</option><option value="arm">ARM</option>
@@ -102,7 +112,7 @@ export default function AltaTenant({ onCreado }: { onCreado: (id: number) => voi
           <Field label="Zona horaria">
             <Select value={timezone} onChange={(e) => setTimezone(e.target.value)}>{ZONAS.map((z) => <option key={z}>{z}</option>)}</Select>
           </Field>
-          <Field label="Dominios" ayuda="Separados por coma. Ej: crm5alluma.com.ar">
+          <Field label="Dominios propios (opcional)" ayuda="Del cliente, separados por coma. Ej: crm.cliente.com.ar. El subdominio de arriba funciona sin cargarlo.">
             <Input value={dominios} onChange={(e) => setDominios(e.target.value)} placeholder="crm.cliente.com.ar" />
           </Field>
           <Field label="Marcas" ayuda="Separadas por coma; la primera es la default">
@@ -152,7 +162,7 @@ export default function AltaTenant({ onCreado }: { onCreado: (id: number) => voi
       {error && <Aviso tipo="error">{error}</Aviso>}
       <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
         <Button type="button" variante="secundario" onClick={() => ir('')}>Cancelar</Button>
-        <Button type="submit" disabled={enviando}>{enviando ? 'Creando… (puede tardar)' : 'Crear tenant'}</Button>
+        <Button type="submit" disabled={enviando || !!errorSlug}>{enviando ? 'Creando… (puede tardar)' : 'Crear tenant'}</Button>
       </div>
     </form>
   );

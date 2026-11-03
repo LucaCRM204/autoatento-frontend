@@ -100,11 +100,13 @@ function Resumen({ t, recargar }: { t: Tenant; recargar: () => void }) {
     try {
       const r = await sa.post(`/tenants/${t.id}/impersonar`, { motivo: motivo || undefined });
       const local = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-      if (!local && !r.data.dominios?.length) {
-        toast('El tenant no tiene dominios cargados', 'error');
+      // El subdominio primero: siempre apunta a este front (un dominio propio puede seguir en el front viejo, ej. el Día D)
+      const remoto = r.data.url ? `${r.data.url}/` : r.data.dominios?.length ? `https://${r.data.dominios[0]}/` : null;
+      if (!local && !remoto) {
+        toast('El tenant no tiene dominios propios y el backend no tiene BASE_DOMAIN', 'error');
         return;
       }
-      const destino = local ? `${window.location.origin}/?tenant=${r.data.slug}` : `https://${r.data.dominios[0]}/`;
+      const destino = local ? `${window.location.origin}/?tenant=${r.data.slug}` : remoto;
       const u = btoa(unescape(encodeURIComponent(JSON.stringify(r.data.user))));
       window.open(`${destino}#imp=${encodeURIComponent(r.data.token)}&u=${encodeURIComponent(u)}`, '_blank', 'noopener');
       toast(`Sesión de soporte como ${r.data.user.email} (1 hora)`);
@@ -120,7 +122,8 @@ function Resumen({ t, recargar }: { t: Tenant; recargar: () => void }) {
       <div className="lg:col-span-2 space-y-5">
         <Card titulo="Datos">
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
-            <Dato l="Dominios">{t.dominios.length ? t.dominios.join(', ') : <span className="text-amber-700">sin dominios</span>}</Dato>
+            <Dato l="URL del CRM">{t.url ? <a href={t.url} target="_blank" rel="noopener noreferrer" className="text-blue-700 hover:underline">{t.url}</a> : <span className="text-amber-700">sin BASE_DOMAIN</span>}</Dato>
+            <Dato l="Dominios propios">{t.dominios.length ? t.dominios.join(', ') : <span className={t.url ? 'text-slate-500' : 'text-amber-700'}>ninguno</span>}</Dato>
             <Dato l="Zona horaria">{t.config.timezone || '—'}</Dato>
             <Dato l="Marcas">{(t.config.marcas || []).join(', ') || '—'}{t.config.marca_default ? ` (default ${t.config.marca_default})` : ''}</Dato>
             <Dato l="Bot de WhatsApp">{t.config.wa_bot_url || '—'}</Dato>
@@ -172,7 +175,7 @@ function General({ t, guardar }: Props) {
       <div className="grid gap-4 sm:grid-cols-2 max-w-3xl">
         <Field label="Nombre (interno)"><Input value={nombre} onChange={(e) => setNombre(e.target.value)} /></Field>
         <Field label="Plan"><Select value={plan} onChange={(e) => setPlan(e.target.value)}><option value="esencial">Esencial</option><option value="pro">Pro</option><option value="arm">ARM</option></Select></Field>
-        <div className="sm:col-span-2"><Field label="Dominios" ayuda="Separados por coma. Cada dominio tiene que apuntar al deploy único de Vercel."><Input value={dominios} onChange={(e) => setDominios(e.target.value)} /></Field></div>
+        <div className="sm:col-span-2"><Field label="Dominios propios" ayuda={`Del cliente, separados por coma; cada uno tiene que apuntar al deploy único de Vercel.${t.url ? ` El subdominio ${t.url.replace('https://', '')} funciona sin cargarlo.` : ''}`}><Input value={dominios} onChange={(e) => setDominios(e.target.value)} /></Field></div>
       </div>
       <Guardar onClick={() => guardar({ nombre, plan, dominios: lista(dominios) })} />
     </Card>
