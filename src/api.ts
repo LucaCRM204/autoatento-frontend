@@ -38,8 +38,9 @@ api.interceptors.response.use(
     if (error.response?.status === 402) {
       // Cuenta suspendida: la app muestra la pantalla de cuenta suspendida
       avisarSuspendido(error.response?.data?.error);
-    } else if (error.response?.status === 401) {
-      // Token expirado o inválido
+    } else if (error.response?.status === 401 && !String(error.config?.url || '').includes('/auth/login')) {
+      // Token expirado o inválido. Un login con credenciales malas también da
+      // 401, pero ahí no se recarga: el error lo muestra la pantalla de login.
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/';

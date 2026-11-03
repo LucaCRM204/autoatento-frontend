@@ -29,7 +29,7 @@ http.interceptors.response.use(
   (error) => {
     if (error.response?.status === 402) {
       avisarSuspendido(error.response?.data?.error);
-    } else if (error.response?.status === 401) {
+    } else if (error.response?.status === 401 && !String(error.config?.url || '').includes('/auth/login')) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
