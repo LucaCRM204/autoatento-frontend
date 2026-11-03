@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Bell, Check, X, Clock } from 'lucide-react';
+import { apiUrl, authHeaders } from '../tenant/store';
 
 interface LeadOffer {
   leadId: number;
@@ -120,12 +121,10 @@ export function LeadAcceptanceModal({ socket, onAccepted, onRejected }: LeadAcce
     
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/leads/${offer.leadId}/accept`, {
+      // Antes era una URL relativa (/api/...): iba al dominio del front, no al backend
+      const response = await fetch(apiUrl(`/leads/${offer.leadId}/accept`), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+        headers: authHeaders({ 'Content-Type': 'application/json' })
       });
 
       if (response.ok) {
@@ -151,12 +150,9 @@ export function LeadAcceptanceModal({ socket, onAccepted, onRejected }: LeadAcce
     
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/leads/${offer.leadId}/reject`, {
+      const response = await fetch(apiUrl(`/leads/${offer.leadId}/reject`), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+        headers: authHeaders({ 'Content-Type': 'application/json' })
       });
 
       if (response.ok) {

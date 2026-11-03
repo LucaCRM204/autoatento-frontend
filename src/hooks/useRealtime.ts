@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { BACKEND_ROOT, getTenantSlug, avisarSuspendido } from '../tenant/store';
 
 export interface RealtimeNotification {
   id: string;
@@ -17,6 +18,8 @@ interface UseRealtimeOptions {
   onLeadUpdated?: (lead: any) => void;
   onLeadDeleted?: (leadId: number) => void;
   onNotification?: (notification: RealtimeNotification) => void;
+  /** Token de la sesión: el socket se (re)conecta cuando cambia. Si no se pasa, usa el de localStorage. */
+  token?: string | null;
 }
 
 export function useRealtime(options: UseRealtimeOptions = {}) {
@@ -25,21 +28,20 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
   const [onlineUsers, setOnlineUsers] = useState<number[]>([]);
   const [notifications, setNotifications] = useState<RealtimeNotification[]>([]);
   const optionsRef = useRef(options);
-  
+
   useEffect(() => {
     optionsRef.current = options;
   }, [options]);
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
+  const token = options.token === undefined ? localStorage.getItem('token') : options.token;
+  const slug = getTenantSlug();
 
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-    // Socket.io conecta a la raíz del server, no a /api
-    const SOCKET_URL = API_URL.replace(/\/api\/?$/, '');
-    
-    const newSocket = io(SOCKET_URL, {
-      auth: { token },
+  useEffect(() => {
+    if (!token || !slug) return;
+
+    // Socket.io conecta a la raíz del server, no a /api. El handshake lleva el tenant.
+    const newSocket = io(BACKEND_ROOT, {
+      auth: { token, tenant: slug },
       transports: ['websocket', 'polling'],
     });
 
@@ -55,6 +57,11 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
 
     newSocket.on('connect_error', (err: any) => {
       console.error('🔌 Socket error:', err.message);
+    });
+
+    // El panel de AutoAtento suspendió o dio de baja la cuenta
+    newSocket.on('tenant:estado', (data: { estado: string; mensaje?: string }) => {
+      if (data?.estado !== 'activo') avisarSuspendido(data?.mensaje);
     });
 
     newSocket.on('users:online', (userIds: number[]) => {
@@ -86,7 +93,7 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
     return () => {
       newSocket.disconnect();
     };
-  }, []);
+  }, [token, slug]);
 
   const emitLeadCreated = useCallback((lead: any) => {
     socket?.emit('lead:created', lead);
@@ -101,7 +108,7 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
   }, [socket]);
 
   const markNotificationRead = useCallback((id: string) => {
-    setNotifications(prev => 
+    setNotifications(prev =>
       prev.map(n => n.id === id ? { ...n, read: true } : n)
     );
   }, []);

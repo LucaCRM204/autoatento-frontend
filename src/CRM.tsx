@@ -29,6 +29,8 @@ import {
   Bot,
 } from "lucide-react";
 import { api } from "./api";
+import { useTenant } from "./tenant/TenantContext";
+import { BrandMark, PoweredBy } from "./tenant/branding";
 import WhatsAppAdminFiat from "./components/WhatsAppAdminFiat";
 import {
   listUsers,
@@ -138,15 +140,8 @@ const fuentes: Record<
 // (el id de usuario del gerente de ese equipo).
 const botConfig: Record<string, { targetTeam: number | null; label: string }> = {};
 // Actualizar el tipo LeadRow para incluir notasInternas
-// ===== CONFIGURACIÓN DE MARCAS =====
-const marcas = {
-  fiat: { label: "Fiat", color: "bg-red-700", icon: "🚗" },
-} as const;
-
-// URL base del servidor del bot de WhatsApp (Baileys) de Auto del Sol Fiat.
-// Se puede pisar con VITE_WHATSAPP_BOT_URL en Vercel.
-const WHATSAPP_BOT_URL =
-  import.meta.env.VITE_WHATSAPP_BOT_URL || "https://api.crmalluma.com.ar/wa-fiat";
+// Marcas y URL del bot de WhatsApp: salen del tenant (config.marcas,
+// config.wa_bot_url) vía useTenant() dentro de CRM.
 
 
 type LeadRow = {
@@ -154,7 +149,7 @@ type LeadRow = {
   nombre: string;
   telefono: string;
   modelo: string;
-  marca?: keyof typeof marcas;
+  marca?: string;
   formaPago?: string;
   infoUsado?: string;
   entrega?: boolean;
@@ -372,6 +367,9 @@ const downloadLeadsByStateExcel = (leads: LeadRow[], estado: string, userById: M
 
 
 export default function CRM() {
+  // Multi-tenant: branding, módulos y config del tenant (ver src/tenant)
+  const { tenant, modulo, nombreMarca } = useTenant();
+  const WHATSAPP_BOT_URL = tenant.config.wa_bot_url || "";
   const [users, setUsers] = useState<any[]>([]);
   const [leads, setLeads] = useState<LeadRow[]>([]);
   const { byId: userById, children: childrenIndex } = useMemo(
@@ -401,7 +399,7 @@ export default function CRM() {
   const [selectedMonth, setSelectedMonth] = useState<string>("");
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
   const [dateFilterType, setDateFilterType] = useState<"created" | "status_change">("status_change");
-  const [_marcaSeleccionada, _setMarcaSeleccionada] = useState<keyof typeof marcas | "todas">("todas");
+  const [_marcaSeleccionada, _setMarcaSeleccionada] = useState<string>("todas");
   // Período para el reporte "Leads por Gerencia × Fuente"
   const [gerenciaReportPeriod, setGerenciaReportPeriod] = useState<"day" | "week" | "month">("day");
   const [gerenciaReportNivel, setGerenciaReportNivel] = useState<"gerencia" | "supervisor">("gerencia");
@@ -538,6 +536,7 @@ const [equipoDestinoReasignacion, setEquipoDestinoReasignacion] = useState<strin
     emitLeadUpdated: _emitLeadUpdated, 
     emitLeadDeleted: _emitLeadDeleted,
   } = useRealtime({
+    token: isAuthenticated ? localStorage.getItem("token") : null,
     onLeadCreated: (newLead: any) => {
       const mapped = mapLeadToRow(newLead);
       if (recentlyCreatedIds.current.has(mapped.id)) {
@@ -562,11 +561,13 @@ const [equipoDestinoReasignacion, setEquipoDestinoReasignacion] = useState<strin
   });
 
   // ===== Login contra backend =====
-  const handleLogin = async (email: string, password: string) => {
+  const handleLogin = async (email: string, password: string, sesion?: { token: string; user: any }) => {
   try {
-    const r = await api.post("/auth/login", { 
-      email, 
-      password, 
+    const r = sesion
+      ? { data: { ok: true, token: sesion.token, user: sesion.user } }
+      : await api.post("/auth/login", {
+      email,
+      password,
       allowInactiveUsers: true
     });
 
@@ -615,14 +616,18 @@ const [equipoDestinoReasignacion, setEquipoDestinoReasignacion] = useState<strin
 
       // AGREGAR ESTO AQUÍ DENTRO
       try {
-        const pp = await listPresupuestos();
-        setPresupuestos(pp || []);
+        if (modulo("presupuestos")) {
+          const pp = await listPresupuestos();
+          setPresupuestos(pp || []);
+        }
       } catch (error) {
         console.error('Error cargando presupuestos:', error);
       }
       try {
-  const mm = await listMetas();
-  setMetas(mm || []);
+  if (modulo("metas")) {
+    const mm = await listMetas();
+    setMetas(mm || []);
+  }
 } catch (error) {
   console.error('Error cargando metas:', error);
 }
@@ -643,13 +648,28 @@ const [equipoDestinoReasignacion, setEquipoDestinoReasignacion] = useState<strin
     setIsAuthenticated(false);
   }
 };
+
+// "Entrar como owner" desde el panel de AutoAtento: TenantProvider deja la
+// sesión en sessionStorage (aa_imp) y acá se inicia como un login normal.
+useEffect(() => {
+  const imp = sessionStorage.getItem("aa_imp");
+  if (!imp) return;
+  sessionStorage.removeItem("aa_imp");
+  try {
+    const { token, user } = JSON.parse(imp);
+    if (token) handleLogin(user?.email || "", "", { token, user });
+  } catch (e) {
+    console.error("Sesión de soporte inválida:", e);
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 // Plantillas de WhatsApp
 const plantillasWhatsApp = {
   primerContacto: {
     nombre: "Primer Contacto",
     emoji: "👋",
     plantilla: (nombre: string, modelo: string, vendedor: string) =>
-      `Hola ${nombre}! 👋 Soy ${vendedor} de ALRA.\n\nVi que consultaste por el ${modelo}. Justo tenemos unidades disponibles 🚗\n\n¿Tenés 5 minutos para una llamada o preferís que te envíe la cotización por acá?`,
+      `Hola ${nombre}! 👋 Soy ${vendedor} de ${nombreMarca}.\n\nVi que consultaste por el ${modelo}. Justo tenemos unidades disponibles 🚗\n\n¿Tenés 5 minutos para una llamada o preferís que te envíe la cotización por acá?`,
   },
   cotizacion: {
     nombre: "Enviar Cotización",
@@ -1617,6 +1637,7 @@ const mapTareaApi = (t: any): TareaSeguimiento => ({
 });
 
 const cargarTareas = async () => {
+  if (!modulo("asignar_tareas")) return;
   try {
     const res = await api.get("/tareas");
     const manuales = (res.data.tareas || []).map(mapTareaApi);
@@ -2648,25 +2669,14 @@ const getProgresoMes = (vendedor_id: number) => {
   // ===== UI: Login =====
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-600 via-purple-600 to-blue-800 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "linear-gradient(135deg, var(--color-primario), #0f172a)" }}>
         <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
           <div className="text-center mb-8">
             <div className="flex items-center justify-center mb-4">
-              <svg width="48" height="42" viewBox="0 0 40 36" fill="none">
-                <path d="M10 2L30 2L35 12L30 22L10 22L5 12Z" fill="url(#gradient2)" />
-                <defs>
-                  <linearGradient id="gradient2" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#FFB800" />
-                    <stop offset="25%" stopColor="#FF6B9D" />
-                    <stop offset="50%" stopColor="#8B5CF6" />
-                    <stop offset="75%" stopColor="#06B6D4" />
-                    <stop offset="100%" stopColor="#10B981" />
-                  </linearGradient>
-                </defs>
-              </svg>
-              <div className="ml-3">
-                <h1 className="text-2xl font-bold text-gray-800">Alluma</h1>
-                <p className="text-sm text-gray-600">Publicidad</p>
+              <BrandMark tenant={tenant} size={48} />
+              <div className="ml-3 text-left">
+                <h1 className="text-2xl font-bold text-gray-800">{nombreMarca}</h1>
+                <p className="text-sm text-gray-600">CRM</p>
               </div>
             </div>
             <p className="text-gray-600">Sistema de gestión CRM</p>
@@ -2679,7 +2689,7 @@ const getProgresoMes = (vendedor_id: number) => {
                 type="email"
                 id="email"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                placeholder="tu@alluma.com"
+                placeholder="tu@email.com"
               />
             </div>
             <div>
@@ -2704,11 +2714,12 @@ const getProgresoMes = (vendedor_id: number) => {
                   (document.getElementById("password") as HTMLInputElement).value
                 )
               }
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700"
+              className="w-full bg-primario text-white py-3 px-4 rounded-lg font-semibold hover:opacity-90"
             >
               Iniciar Sesión
             </button>
           </div>
+          <PoweredBy className="text-center mt-8" />
         </div>
       </div>
     );
@@ -2722,25 +2733,11 @@ const getProgresoMes = (vendedor_id: number) => {
         <div className="mb-8">
           <div className="flex items-center mb-4">
             <div className="relative">
-              <svg width="40" height="36" viewBox="0 0 40 36" fill="none">
-                <path d="M10 2L30 2L35 12L30 22L10 22L5 12Z" fill="url(#gradient1)" />
-                <defs>
-                  <linearGradient id="gradient1" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#FFB800" />
-                    <stop offset="25%" stopColor="#FF6B9D" />
-                    <stop offset="50%" stopColor="#8B5CF6" />
-                    <stop offset="75%" stopColor="#06B6D4" />
-                    <stop offset="100%" stopColor="#10B981" />
-                  </linearGradient>
-                </defs>
-              </svg>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-2 h-2 bg-white rounded-full"></div>
-              </div>
+              <BrandMark tenant={tenant} size={40} />
             </div>
             <div className="ml-3">
-              <h1 className="text-xl font-bold text-white">Alluma</h1>
-              <p className="text-xs text-gray-400">Publicidad</p>
+              <h1 className="text-xl font-bold text-white">{nombreMarca}</h1>
+              <p className="text-xs text-gray-400">CRM</p>
             </div>
           </div>
 
@@ -2767,19 +2764,19 @@ const getProgresoMes = (vendedor_id: number) => {
     { key: "leads", label: "Leads", Icon: Users },
     { key: "tareas", label: "Mis Tareas", Icon: Bell, badge: tareasPendientes.filter(t => !t.completada && t.prioridad === 'alta' && (currentUser?.role !== 'vendedor' || t.asignadoA === currentUser?.id)).length },
     { key: "calendar", label: "Calendario", Icon: Calendar },
-    { key: "ranking", label: "Ranking", Icon: Trophy },
+    ...(modulo("ranking") ? [{ key: "ranking", label: "Ranking", Icon: Trophy }] : []),
     
     // Gestión de Metas
-    ...((["supervisor", "gerente", "director", "owner"].includes(currentUser?.role))
+    ...(modulo("metas") && (["supervisor", "gerente", "director", "owner"].includes(currentUser?.role))
       ? [{ key: "metas", label: "Gestión de Metas", Icon: Target }]
       : []),
     
     ...(["supervisor", "gerente", "director", "owner"].includes(currentUser?.role)
       ? [{ key: "team", label: "Mi Equipo", Icon: UserCheck }]
       : []),
-    ...((["supervisor", "gerente", "director", "owner"].includes(currentUser?.role))
-  ? [{ 
-      key: "asignar_tareas", 
+    ...(modulo("asignar_tareas") && (["supervisor", "gerente", "director", "owner"].includes(currentUser?.role))
+  ? [{
+      key: "asignar_tareas",  
       label: "Asignar Tareas", 
       Icon: Bell,
       badge: tareasPendientes.filter(t => 
@@ -2787,17 +2784,17 @@ const getProgresoMes = (vendedor_id: number) => {
       ).length
     }]
   : []),
-    ...((isOwner() || currentUser?.role === "director" || currentUser?.role === "gerente")
+    ...(modulo("analytics") && (isOwner() || currentUser?.role === "director" || currentUser?.role === "gerente")
       ? [{ key: "analytics", label: "Análisis Diario", Icon: BarChart3 }]
       : []),
     { key: "alerts", label: "Alertas", Icon: Bell, badge: unreadAlerts },
     ...(canManageUsers()
       ? [{ key: "users", label: "Usuarios", Icon: Settings }]
       : []),
-    ...((isOwner() || ["director", "gerente"].includes(currentUser?.role))
+    ...(modulo("whatsapp_bot") && (isOwner() || ["director", "gerente"].includes(currentUser?.role))
       ? [{ key: "whatsapp_admin", label: "WhatsApp Admin", Icon: MessageCircle }]
       : []),
-    ...((isOwner() || ["director", "gerente"].includes(currentUser?.role))
+    ...(modulo("agente_ia") && (isOwner() || ["director", "gerente"].includes(currentUser?.role))
       ? [{ key: "agente", label: "Agente IA", Icon: Bot }]
       : []),
   ];
@@ -2807,7 +2804,7 @@ const getProgresoMes = (vendedor_id: number) => {
               onClick={() => setActiveSection(key as any)}
               className={`w-full flex items-center justify-between space-x-3 px-3 py-2 rounded-lg transition-colors ${
                 activeSection === (key as any)
-                  ? "bg-blue-600 text-white"
+                  ? "bg-primario text-white"
                   : "text-gray-300 hover:bg-slate-800"
               }`}
             >
@@ -2868,6 +2865,7 @@ const getProgresoMes = (vendedor_id: number) => {
             </svg>
             <span>Cerrar Sesión</span>
           </button>
+          <PoweredBy oscuro className="px-3 mt-4" />
         </div>
       </div>
      
@@ -3464,6 +3462,7 @@ const getProgresoMes = (vendedor_id: number) => {
 </button>
 
 {/* Mini Chat WhatsApp en vivo */}
+{modulo("chat_whatsapp") && (
 <button
   onClick={(e) => {
     e.stopPropagation();
@@ -3475,6 +3474,7 @@ const getProgresoMes = (vendedor_id: number) => {
   <MessageCircle size={12} />
   <span>Chat</span>
 </button>
+)}
 {/* Llamar por WhatsApp */}
 <button
   onClick={(e) => {
@@ -3516,6 +3516,7 @@ const getProgresoMes = (vendedor_id: number) => {
     </button>
     
     
+                          {modulo("presupuestos") && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -3527,6 +3528,7 @@ const getProgresoMes = (vendedor_id: number) => {
                             <FileText size={12} />
                             <span>Presup</span>
                           </button>
+                          )}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -4223,6 +4225,7 @@ const getProgresoMes = (vendedor_id: number) => {
                         </button>
 
                         {/* Chat WhatsApp en vivo */}
+                        {modulo("chat_whatsapp") && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -4233,6 +4236,7 @@ const getProgresoMes = (vendedor_id: number) => {
                         >
                           <MessageCircle size={12} />
                         </button>
+                        )}
                         {/* Llamar */}
                         <button
                           onClick={(e) => {
@@ -4453,7 +4457,7 @@ const getProgresoMes = (vendedor_id: number) => {
         )}
 
         {/* Sección Ranking */}
-{activeSection === "ranking" && (
+{activeSection === "ranking" && modulo("ranking") && (
   <div className="space-y-6">
     <div className="flex items-center justify-between">
       <h2 className="text-3xl font-bold text-gray-800">Ranking de Vendedores</h2>
@@ -5249,6 +5253,7 @@ const getProgresoMes = (vendedor_id: number) => {
       <span>Cotiz</span>
     </button>
     
+    {modulo("presupuestos") && (
     <button
       onClick={(e) => {
         e.stopPropagation();
@@ -5260,7 +5265,9 @@ const getProgresoMes = (vendedor_id: number) => {
       <FileText size={12} />
       <span>Presup</span>
     </button>
+    )}
     
+{modulo("presupuestos") && (
                                         <button
   onClick={(e) => {
     e.stopPropagation();
@@ -5272,6 +5279,7 @@ const getProgresoMes = (vendedor_id: number) => {
   <FileText size={12} />
   <span>Presup</span>
 </button>
+)}
 
                                         <button
                                           onClick={(e) => {
@@ -5423,7 +5431,7 @@ const getProgresoMes = (vendedor_id: number) => {
             </div>
           )}
         {/* Sección Asignar Tareas - Para Superiores */}
-{activeSection === "asignar_tareas" && (["supervisor", "gerente", "director", "owner"].includes(currentUser?.role)) && (
+{activeSection === "asignar_tareas" && modulo("asignar_tareas") && (["supervisor", "gerente", "director", "owner"].includes(currentUser?.role)) && (
   <div className="space-y-6">
     <div className="flex items-center justify-between">
       <div>
@@ -5665,7 +5673,7 @@ const getProgresoMes = (vendedor_id: number) => {
 )}
 
         {/* Sección Análisis Diario - Owner / Director / Gerente (solo su equipo) */}
-  {activeSection === "analytics" && (isOwner() || currentUser?.role === "director" || currentUser?.role === "gerente") && (
+  {activeSection === "analytics" && modulo("analytics") && (isOwner() || currentUser?.role === "director" || currentUser?.role === "gerente") && (
   <div className="space-y-6">
     <div className="flex items-center justify-between">
       <h2 className="text-3xl font-bold text-gray-800">Reportes</h2>
@@ -6329,11 +6337,11 @@ const getProgresoMes = (vendedor_id: number) => {
           </div>
         )}
     {/* WhatsApp Admin */}
-{activeSection === "whatsapp_admin" && (isOwner() || ["director", "gerente"].includes(currentUser?.role)) && (
+{activeSection === "whatsapp_admin" && modulo("whatsapp_bot") && (isOwner() || ["director", "gerente"].includes(currentUser?.role)) && (
   <div className="space-y-6">
     <WhatsAppAdminFiat
       botApiUrl={WHATSAPP_BOT_URL}
-      title="WhatsApp Admin — Auto del Sol Fiat"
+      title={`WhatsApp Admin — ${nombreMarca}`}
     />
   </div>
 )}
@@ -6351,7 +6359,7 @@ const getProgresoMes = (vendedor_id: number) => {
   />
 )}
     {/* Agente IA */}
-{activeSection === "agente" && (isOwner() || ["director", "gerente"].includes(currentUser?.role)) && (
+{activeSection === "agente" && modulo("agente_ia") && (isOwner() || ["director", "gerente"].includes(currentUser?.role)) && (
   <AgentInbox
     currentUser={currentUser}
     onAbrirLead={(id: number) => {
@@ -6363,7 +6371,7 @@ const getProgresoMes = (vendedor_id: number) => {
   />
 )}
     {/* Sección Presupuestos */}
-{activeSection === "presupuestos" && (
+{activeSection === "presupuestos" && modulo("presupuestos") && (
   <div className="space-y-6">
     <div className="flex items-center justify-between">
       <h2 className="text-3xl font-bold text-gray-800">Plantillas de Presupuesto</h2>
@@ -6488,7 +6496,7 @@ const getProgresoMes = (vendedor_id: number) => {
   </div>
 )}
 {/* Sección Gestión de Metas */}
-{activeSection === "metas" && (["supervisor", "gerente", "director", "owner"].includes(currentUser?.role)) && (
+{activeSection === "metas" && modulo("metas") && (["supervisor", "gerente", "director", "owner"].includes(currentUser?.role)) && (
   <div className="space-y-6">
     <div className="flex items-center justify-between">
       <h2 className="text-3xl font-bold text-gray-800">🎯 Gestión de Metas</h2>
@@ -8637,7 +8645,7 @@ const getProgresoMes = (vendedor_id: number) => {
               id="pres-marca"
               defaultValue={editingPresupuesto?.marca || ""}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="ej: Fiat"
+              placeholder={`ej: ${tenant.config.marca_default || "marca"}`}
             />
           </div>
           <div>
@@ -8907,7 +8915,7 @@ const getProgresoMes = (vendedor_id: number) => {
                 type="text"
                 id="plan-pensado"
                 defaultValue={leadParaPresupuesto.modelo}
-                placeholder="Ej: Fiat Cronos 1.3 GSE"
+                placeholder="Ej: Modelo 1.3 GSE"
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -9058,7 +9066,7 @@ const getProgresoMes = (vendedor_id: number) => {
                 type="text"
                 id="modelo-usado"
                 defaultValue={leadParaPresupuesto.infoUsado || ''}
-                placeholder="Ej: Fiat Cronos"
+                placeholder="Ej: Modelo"
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -9470,7 +9478,7 @@ const getProgresoMes = (vendedor_id: number) => {
               <input
                 type="text"
                 defaultValue={leadParaCotizacion.infoUsado || ''}
-                placeholder="Ej: Fiat Cronos 2020"
+                placeholder="Ej: Modelo 2020"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
               />
             </div>
@@ -9760,7 +9768,7 @@ mensaje += `   Total: $${(plan.valorCuota * plan.cuotas).toLocaleString('es-AR')
         <button
           onClick={() => {
             const phoneNumber = leadParaWhatsApp.telefono.replace(/\D/g, '');
-            const mensaje = `Hola ${leadParaWhatsApp.nombre}! Soy ${currentUser?.name} de ALRA. `;
+            const mensaje = `Hola ${leadParaWhatsApp.nombre}! Soy ${currentUser?.name} de ${nombreMarca}. `;
             const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(mensaje)}`;
             window.open(whatsappUrl, '_blank');
             setShowPlantillasModal(false);

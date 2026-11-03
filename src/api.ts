@@ -1,8 +1,8 @@
 import axios from 'axios';
+import { API_BASE, getTenantSlug, avisarSuspendido } from './tenant/store';
 
-// Configuración de la URL base del API.
-// Definir VITE_API_URL en el .env (ver .env.example).
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+// URL base del API: VITE_API_URL (con /api al final), ver .env.example.
+const API_URL = API_BASE;
 
 // Crear instancia de axios
 export const api = axios.create({
@@ -11,12 +11,16 @@ export const api = axios.create({
   withCredentials: true,
 });
 
-// Interceptor para agregar token automáticamente
+// Interceptor: token + tenant (X-Tenant) en cada request
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    const slug = getTenantSlug();
+    if (slug) {
+      config.headers['X-Tenant'] = slug;
     }
     return config;
   },
@@ -31,7 +35,10 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 402) {
+      // Cuenta suspendida: la app muestra la pantalla de cuenta suspendida
+      avisarSuspendido(error.response?.data?.error);
+    } else if (error.response?.status === 401) {
       // Token expirado o inválido
       localStorage.removeItem('token');
       localStorage.removeItem('user');

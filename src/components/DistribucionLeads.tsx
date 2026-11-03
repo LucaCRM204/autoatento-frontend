@@ -11,15 +11,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
-// ⚙️ AJUSTAR 1: la URL del backend.
-// Vite  -> import.meta.env.VITE_API_URL
-// CRA   -> process.env.REACT_APP_API_URL
-const API_URL = import.meta.env.VITE_API_URL ?? '';
-
-// ⚙️ AJUSTAR 2: como se llama el token en localStorage.
-// Miralo en DevTools -> Application -> Local Storage.
-const TOKEN_KEY = 'token';
+// URL del backend (VITE_API_URL, ya termina en /api) y headers con token + X-Tenant.
+// Antes armaba `${VITE_API_URL}/api/distribution` -> /api/api/distribution (404).
+import { apiUrl, authHeaders } from '../tenant/store';
 
 // ─────────────────────────────────────────────────────────────
 
@@ -65,16 +59,10 @@ export default function DistribucionLeads() {
 
   const debounce = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
-  const headers = useMemo(
-    () => ({
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY) ?? ''}`,
-    }),
-    []
-  );
+  const headers = useMemo(() => authHeaders({ 'Content-Type': 'application/json' }), []);
 
   async function pedir(ruta: string, opciones: RequestInit = {}) {
-    const r = await fetch(`${API_URL}/api/distribution${ruta}`, { ...opciones, headers });
+    const r = await fetch(apiUrl(`/distribution${ruta}`), { ...opciones, headers });
     if (r.status === 401 || r.status === 403) {
       throw new Error('Tu sesión venció o no tenés permiso para este equipo.');
     }

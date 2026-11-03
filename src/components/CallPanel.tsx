@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { PhoneOff, Clock, Save } from 'lucide-react';
+import { getTenantSlug } from '../tenant/store';
 
 type Props = {
   lead: { id: number; nombre: string; telefono: string };
@@ -50,6 +51,8 @@ export default function CallPanel({ lead, onClose, onCallSaved, apiUrl, token }:
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
+      const slug = getTenantSlug();
+      if (slug) headers['X-Tenant'] = slug;
       
       // VITE_API_URL ya termina en /api: antes quedaba /api/api/calls (404 silencioso)
       const res = await fetch(`${apiUrl}/calls`, {
